@@ -1,111 +1,175 @@
 package com.simats.crickzo
 
+import android.content.Context
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.simats.crickzo.ui.theme.*
+import com.simats.crickzo.ui.theme.PrimaryBlue
+import kotlinx.coroutines.launch
 
 @Composable
-fun LoginScreen(onSignUpClick: () -> Unit, onForgotPasswordClick: () -> Unit, onLoginClick: () -> Unit) {
+fun LoginScreen(
+    onSignUpClick: () -> Unit,
+    onForgotPasswordClick: () -> Unit,
+    onLoginSuccess: (String, String, Int) -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val apiService = RetrofitClient.apiService
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(BgGradientStart, BgGradientEnd)
-                )
-            )
-    ) {
+    fun handleLogin() {
+        if (email.isBlank() || password.isBlank()) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Please enter email and password") }
+            return
+        }
+
+        isLoading = true
+        coroutineScope.launch {
+            try {
+                val request = LoginRequest(email, password)
+                val response = apiService.login(request)
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    if (body?.status == "success") {
+                        val userId = body.userId ?: -1
+                        val name = body.name ?: "User"
+                        
+                        val sharedPrefs = context.getSharedPreferences("crickzo_prefs", Context.MODE_PRIVATE)
+                        sharedPrefs.edit()
+                            .putInt("user_id", userId)
+                            .putString("user_name", name)
+                            .putString("user_email", email)
+                            .apply()
+                        
+                        onLoginSuccess(name, email, userId)
+                    } else {
+                        snackbarHostState.showSnackbar(body?.message ?: "Login failed")
+                    }
+                } else {
+                    snackbarHostState.showSnackbar("Error: ${response.message()}")
+                }
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("Network error: ${e.localizedMessage}")
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp),
+                .background(PrimaryBlue)
+                .padding(padding)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(60.dp))
+            Spacer(modifier = Modifier.height(30.dp))
 
-            // User Icon
-            Surface(
-                modifier = Modifier.size(80.dp),
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.2f)
+            // Logo Row with SIMATS, CRICKZO, and SSE
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxSize()
+                // SIMATS Logo (Top Left)
+                Image(
+                    painter = painterResource(id = R.drawable.simats),
+                    contentDescription = "SIMATS Logo",
+                    modifier = Modifier.size(70.dp),
+                    contentScale = ContentScale.Fit
+                )
+
+                // CRICKZO Logo (Middle)
+                Image(
+                    painter = painterResource(id = R.drawable.crickzo_logo),
+                    contentDescription = "Crickzo Logo",
+                    modifier = Modifier.size(110.dp),
+                    contentScale = ContentScale.Fit
+                )
+
+                // SSE Logo (Top Right)
+                Image(
+                    painter = painterResource(id = R.drawable.sse),
+                    contentDescription = "SSE Logo",
+                    modifier = Modifier.size(70.dp),
+                    contentScale = ContentScale.Fit
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
+            Spacer(modifier = Modifier.height(20.dp))
+            
             Text(
-                text = "User Login",
-                color = Color.White,
-                fontSize = 32.sp,
+                text = "User Login", 
+                color = Color.White, 
+                fontSize = 32.sp, 
                 fontWeight = FontWeight.Bold
             )
-
             Text(
-                text = "Watch Live Matches & AI Predictions",
-                color = Color.White.copy(alpha = 0.8f),
+                text = "Watch Live Matches & AI Predictions", 
+                color = Color.White.copy(alpha = 0.8f), 
                 fontSize = 16.sp
             )
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // White Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
+            // White Content Card
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = Color.White,
+                shape = RoundedCornerShape(topStart = 40.dp, topEnd = 40.dp)
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(24.dp)
+                        .padding(horizontal = 24.dp, vertical = 32.dp)
                         .fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Welcome Back",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black
+                        text = "Welcome Back", 
+                        color = Color.Black, 
+                        fontSize = 28.sp, 
+                        fontWeight = FontWeight.Bold
                     )
-
                     Text(
-                        text = "Sign in to watch live cricket matches",
+                        text = "Sign in to watch live cricket matches", 
+                        color = Color.Gray, 
                         fontSize = 14.sp,
-                        color = GrayText,
                         modifier = Modifier.padding(top = 8.dp)
                     )
 
@@ -114,52 +178,53 @@ fun LoginScreen(onSignUpClick: () -> Unit, onForgotPasswordClick: () -> Unit, on
                     // Email Field
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "Email Address",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.Black,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                            text = "Email Address", 
+                            fontSize = 14.sp, 
+                            fontWeight = FontWeight.Bold, 
+                            color = Color.Black
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
-                            value = email,
-                            onValueChange = { email = it },
+                            value = email, 
+                            onValueChange = { email = it }, 
                             modifier = Modifier.fillMaxWidth(),
                             placeholder = { Text("Enter your email", color = Color.LightGray) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Email, contentDescription = null, tint = GrayText)
-                            },
+                            leadingIcon = { Icon(Icons.Default.Email, null, tint = Color.Gray) },
                             shape = RoundedCornerShape(12.dp),
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = PrimaryBlue,
-                                unfocusedBorderColor = Color(0xFFE5E7EB)
+                                unfocusedBorderColor = Color(0xFFE0E0E0),
+                                unfocusedContainerColor = Color(0xFFF9F9F9),
+                                focusedContainerColor = Color(0xFFF9F9F9)
                             )
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     // Password Field
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "Password",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.Black,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                            text = "Password", 
+                            fontSize = 14.sp, 
+                            fontWeight = FontWeight.Bold, 
+                            color = Color.Black
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
-                            value = password,
-                            onValueChange = { password = it },
+                            value = password, 
+                            onValueChange = { password = it }, 
                             modifier = Modifier.fillMaxWidth(),
                             placeholder = { Text("Enter your password", color = Color.LightGray) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Lock, contentDescription = null, tint = GrayText)
-                            },
+                            leadingIcon = { Icon(Icons.Default.Lock, null, tint = Color.Gray) },
                             trailingIcon = {
-                                val image = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff
                                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                    Icon(imageVector = image, contentDescription = null, tint = GrayText)
+                                    Icon(
+                                        if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, 
+                                        null, 
+                                        tint = Color.Gray
+                                    )
                                 }
                             },
                             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -168,65 +233,61 @@ fun LoginScreen(onSignUpClick: () -> Unit, onForgotPasswordClick: () -> Unit, on
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = PrimaryBlue,
-                                unfocusedBorderColor = Color(0xFFE5E7EB)
+                                unfocusedBorderColor = Color(0xFFE0E0E0),
+                                unfocusedContainerColor = Color(0xFFF9F9F9),
+                                focusedContainerColor = Color(0xFFF9F9F9)
                             )
                         )
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        contentAlignment = Alignment.CenterEnd
-                    ) {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                         TextButton(onClick = onForgotPasswordClick) {
-                            Text(text = "Forgot Password?", color = LinkBlue, fontSize = 14.sp)
+                            Text(text = "Forgot Password?", color = PrimaryBlue, fontWeight = FontWeight.Bold)
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Button(
-                        onClick = onLoginClick,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
-                    ) {
-                        Text(text = "Sign In", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
+                    Button(
+                        onClick = { handleLogin() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        enabled = !isLoading,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
                     ) {
-                        Text(text = "Don't have an account?", color = GrayText, fontSize = 14.sp)
-                        TextButton(onClick = onSignUpClick) {
-                            Text(text = "Sign Up", color = LinkBlue, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        if (isLoading) {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                        } else {
+                            Text(
+                                text = "Sign In", 
+                                fontSize = 18.sp, 
+                                fontWeight = FontWeight.Bold, 
+                                color = Color.White
+                            )
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "Don't have an account?", color = Color.Gray)
+                        TextButton(onClick = onSignUpClick) {
+                            Text(text = "Sign Up", color = PrimaryBlue, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Text(
+                        text = "Powered by SIMATS Engineering", 
+                        color = Color.LightGray, 
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
                 }
             }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Text(
-                text = "By continuing, you agree to our Terms of Service\nand Privacy Policy",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(bottom = 32.dp)
-            )
         }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun LoginScreenPreview() {
-    CrickzoTheme {
-        LoginScreen(onSignUpClick = {}, onForgotPasswordClick = {}, onLoginClick = {})
     }
 }

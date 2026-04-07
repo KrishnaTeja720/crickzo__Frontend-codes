@@ -10,7 +10,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
@@ -22,17 +24,96 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.simats.crickzo.ui.theme.GrayText
+import kotlinx.coroutines.launch
 
 @Composable
 fun MyMatchesScreen(
+    userId: Int,
     matches: List<CreatedMatch>,
     completedMatches: List<CompletedMatchInfo>,
+    initialTab: String = "Live",
     onBack: () -> Unit,
     onScoreMatch: (CreatedMatch) -> Unit,
+    onCompletedMatchClick: (CompletedMatchInfo) -> Unit = {},
     onAddMatch: () -> Unit = {}
 ) {
-    var selectedTab by remember { mutableStateOf("Live") }
+    var selectedTab by remember { mutableStateOf(initialTab) }
     val tabs = listOf("Live", "Upcoming", "Completed")
+    
+    val coroutineScope = rememberCoroutineScope()
+    val localMatches = remember { mutableStateListOf<CreatedMatch>() }
+    val localCompletedMatches = remember { mutableStateListOf<CompletedMatchInfo>() }
+    var isLoading by remember { mutableStateOf(false) }
+
+    // Sync with passed-in matches initially
+    LaunchedEffect(matches, completedMatches) {
+        if (localMatches.isEmpty() && matches.isNotEmpty()) {
+            localMatches.clear()
+            localMatches.addAll(matches)
+        }
+        if (localCompletedMatches.isEmpty() && completedMatches.isNotEmpty()) {
+            localCompletedMatches.clear()
+            localCompletedMatches.addAll(completedMatches)
+        }
+    }
+
+    fun fetchMyMatches() {
+        if (isLoading || userId <= 0) return
+        isLoading = true
+        coroutineScope.launch {
+            try {
+                // Fetch live matches
+                val liveResponse = RetrofitClient.apiService.getLiveMatches(userId)
+                // Fetch upcoming matches
+                val upcomingResponse = RetrofitClient.apiService.getUpcomingMatches(userId)
+                
+                val updatedMatches = mutableListOf<CreatedMatch>()
+                
+                if (liveResponse.isSuccessful) {
+                    liveResponse.body()?.forEach { liveMatch ->
+                        updatedMatches.add(mapToCreatedMatch(liveMatch, "LIVE"))
+                    }
+                }
+                
+                if (upcomingResponse.isSuccessful) {
+                    upcomingResponse.body()?.forEach { upcomingMatch ->
+                        // Only add if not already in live list
+                        if (updatedMatches.none { it.id == upcomingMatch.matchId.toString() }) {
+                            updatedMatches.add(mapToCreatedMatch(upcomingMatch, "UPCOMING"))
+                        }
+                    }
+                }
+
+                if (updatedMatches.isNotEmpty()) {
+                    localMatches.clear()
+                    localMatches.addAll(updatedMatches)
+                }
+
+                // Fetch completed matches
+                val compResponse = RetrofitClient.apiService.getCompletedMatches(userId)
+                if (compResponse.isSuccessful) {
+                    localCompletedMatches.clear()
+                    compResponse.body()?.let { localCompletedMatches.addAll(it) }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    // Initial fetch if lists are empty
+    LaunchedEffect(userId) {
+        if (userId > 0) {
+            fetchMyMatches()
+        }
+    }
+
+    // Update selectedTab if initialTab changes (useful when navigating from Home)
+    LaunchedEffect(initialTab) {
+        selectedTab = initialTab
+    }
 
     Column(
         modifier = Modifier
@@ -62,22 +143,27 @@ fun MyMatchesScreen(
                         text = "My Matches",
                         color = Color.White,
                         fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
                     )
+                    IconButton(onClick = { fetchMyMatches() }) {
+                        Icon(Icons.Default.Refresh, "Refresh", tint = Color.White)
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 // Tab Row
                 ScrollableTabRow(
-                    selectedTabIndex = tabs.indexOf(selectedTab),
+                    selectedTabIndex = tabs.indexOf(selectedTab).coerceAtLeast(0),
                     containerColor = Color.Transparent,
                     contentColor = Color.White,
                     edgePadding = 16.dp,
                     divider = {},
                     indicator = { tabPositions ->
+                        val index = tabs.indexOf(selectedTab).coerceAtLeast(0)
                         TabRowDefaults.SecondaryIndicator(
-                            modifier = Modifier.tabIndicatorOffset(tabPositions[tabs.indexOf(selectedTab)]),
+                            modifier = Modifier.tabIndicatorOffset(tabPositions[index]),
                             color = Color.White
                         )
                     }
@@ -99,42 +185,71 @@ fun MyMatchesScreen(
             }
         }
 
-        val currentMatches = when (selectedTab) {
-            "Live" -> matches.filter { it.status == "LIVE" }
-            "Upcoming" -> matches.filter { it.status == "UPCOMING" }
-            else -> listOf()
-        }
-
-        if (selectedTab == "Completed") {
-            if (completedMatches.isEmpty()) {
-                EmptyState(onAddMatch, "No completed matches yet")
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(completedMatches) { match ->
-                        CompletedMatchCard(match)
-                    }
-                }
+        if (isLoading && localMatches.isEmpty() && localCompletedMatches.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFF1E40AF))
             }
         } else {
-            if (currentMatches.isEmpty()) {
-                EmptyState(onAddMatch, "No $selectedTab matches found")
+            val currentMatches = when (selectedTab) {
+                "Live" -> localMatches.filter { it.status.uppercase() == "LIVE" }
+                "Upcoming" -> localMatches.filter { it.status.uppercase() == "UPCOMING" }
+                else -> listOf()
+            }
+
+            if (selectedTab == "Completed") {
+                if (localCompletedMatches.isEmpty()) {
+                    EmptyState(onAddMatch, "No completed matches yet")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(localCompletedMatches) { match ->
+                            CompletedMatchCard(userId = userId, match = match, onClick = { onCompletedMatchClick(match) })
+                        }
+                    }
+                }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(currentMatches) { match ->
-                        MyMatchCard(match = match, onScoreClick = { onScoreMatch(match) })
+                if (currentMatches.isEmpty()) {
+                    EmptyState(onAddMatch, "No $selectedTab matches found")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(currentMatches) { match ->
+                            MyMatchCard(match = match, onScoreClick = { onScoreMatch(match) })
+                        }
                     }
                 }
             }
         }
     }
+}
+
+private fun mapToCreatedMatch(liveMatch: LiveMatchData, defaultStatus: String): CreatedMatch {
+    return CreatedMatch(
+        id = liveMatch.matchId.toString(),
+        teamA = liveMatch.teamA ?: "Team A",
+        teamB = liveMatch.teamB ?: "Team B",
+        teamAPlayers = emptyList(),
+        teamBPlayers = emptyList(),
+        status = liveMatch.status?.uppercase() ?: defaultStatus,
+        location = liveMatch.venue ?: "Local Ground",
+        striker = liveMatch.striker ?: "",
+        nonStriker = liveMatch.nonStriker ?: "",
+        bowler = "",
+        tossWinner = liveMatch.tossWinner ?: "",
+        tossDecision = liveMatch.tossDecision ?: "",
+        runs = liveMatch.runs,
+        wickets = liveMatch.wickets,
+        overs = liveMatch.overs.toFloat(),
+        crr = liveMatch.crr.toFloat(),
+        type = if (liveMatch.format?.all { it.isDigit() } == true) "${liveMatch.format} Overs" else (liveMatch.format ?: "T20"),
+        currentInnings = liveMatch.currentInnings
+    )
 }
 
 @Composable
@@ -193,66 +308,6 @@ fun EmptyState(onAddMatch: () -> Unit, message: String) {
 }
 
 @Composable
-fun CompletedMatchCard(match: CompletedMatchInfo) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = CardDefaults.outlinedCardBorder()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    color = Color(0xFFF1F5F9),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = match.type,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = Color(0xFF64748B),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(text = match.date, color = GrayText, fontSize = 12.sp)
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(text = match.teamA, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(text = match.teamB, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(text = match.scoreA, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(text = match.scoreB, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider(color = Color(0xFFF1F5F9))
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Text(
-                text = match.result,
-                color = Color(0xFF059669),
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp
-            )
-        }
-    }
-}
-
-@Composable
 fun MyMatchCard(match: CreatedMatch, onScoreClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -268,7 +323,7 @@ fun MyMatchCard(match: CreatedMatch, onScoreClick: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (match.status == "LIVE") {
+                    if (match.status.uppercase() == "LIVE") {
                         Surface(
                             color = Color(0xFFFFE4E6),
                             shape = RoundedCornerShape(12.dp)
@@ -281,6 +336,20 @@ fun MyMatchCard(match: CreatedMatch, onScoreClick: () -> Unit) {
                                 Spacer(Modifier.width(4.dp))
                                 Text(text = "LIVE", color = Color(0xFFEF4444), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    } else if (match.status.uppercase() == "UPCOMING") {
+                        Surface(
+                            color = Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = "UPCOMING",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                color = Color(0xFF64748B),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                         Spacer(Modifier.width(8.dp))
                     }
@@ -312,28 +381,35 @@ fun MyMatchCard(match: CreatedMatch, onScoreClick: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                     Surface(modifier = Modifier.size(48.dp), shape = CircleShape, color = Color(0xFFF1F5F9)) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(text = match.teamA.take(1), fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text(text = match.teamA, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(text = match.teamA, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 1)
+                    if (match.status.uppercase() == "LIVE") {
+                        Text(text = "${match.runs}/${match.wickets}", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF1E40AF))
+                        Text(text = "(${match.overs})", fontSize = 12.sp, color = GrayText)
+                    }
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 8.dp)) {
                     Text(text = "VS", color = Color(0xFF94A3B8), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                     Surface(modifier = Modifier.size(48.dp), shape = CircleShape, color = Color(0xFFF1F5F9)) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(text = match.teamB.take(1), fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text(text = match.teamB, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(text = match.teamB, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 1)
+                    if (match.status.uppercase() == "LIVE") {
+                        // For simplicity, we only show batting team score in this card overview if available
+                    }
                 }
             }
 
@@ -344,16 +420,16 @@ fun MyMatchCard(match: CreatedMatch, onScoreClick: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (match.status == "LIVE") Color(0xFF1E40AF) else Color(0xFFF1F5F9),
-                    contentColor = if (match.status == "LIVE") Color.White else Color(0xFF1E40AF)
+                    containerColor = if (match.status.uppercase() == "LIVE") Color(0xFF1E40AF) else Color(0xFFF1F5F9),
+                    contentColor = if (match.status.uppercase() == "LIVE") Color.White else Color(0xFF1E40AF)
                 )
             ) {
-                if (match.status == "LIVE") {
+                if (match.status.uppercase() == "LIVE") {
                     Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                 }
                 Text(
-                    text = if (match.status == "LIVE") "Score Now" else "Match Details",
+                    text = if (match.status.uppercase() == "LIVE") "Score Now" else "Match Details",
                     fontWeight = FontWeight.Bold
                 )
             }

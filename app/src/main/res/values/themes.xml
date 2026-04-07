@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Crickzo" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Crickzo" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="app_name_color">#0A0E27</item>
+        <item name="inverse">#FFFFFF</item>
+    </style>
+
+    <attr name="app_name_color" format="color" />
+    <attr name="inverse" format="color" />
+
 </resources>

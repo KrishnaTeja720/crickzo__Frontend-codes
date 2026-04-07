@@ -16,11 +16,34 @@ class ScoreUpdateWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
-        showNotification(
-            "Match Update",
-            "It's 9:30 AM! Check out the latest scores and match predictions on Crickzo."
-        )
-        return Result.success()
+        return try {
+            val sharedPrefs = applicationContext.getSharedPreferences("crickzo_prefs", Context.MODE_PRIVATE)
+            val userId = sharedPrefs.getInt("user_id", -1)
+            
+            if (userId <= 0) {
+                return Result.success()
+            }
+            
+            val response = RetrofitClient.apiService.getLiveMatches(userId)
+            if (response.isSuccessful) {
+                val matches = response.body()
+                if (!matches.isNullOrEmpty()) {
+                    val match = matches[0] // Show the first live match
+                    showNotification(
+                        "Live Match: ${match.teamA} vs ${match.teamB}",
+                        "Score: ${match.runs}/${match.wickets} (${match.overs} overs). CRR: ${match.crr}"
+                    )
+                }
+            }
+            Result.success()
+        } catch (e: Exception) {
+            // If failed, we still want to notify the user periodically
+            showNotification(
+                "Match Update",
+                "Check out the latest scores and match predictions on Crickzo."
+            )
+            Result.retry()
+        }
     }
 
     private fun showNotification(title: String, message: String) {
@@ -31,7 +54,7 @@ class ScoreUpdateWorker(
             val channel = NotificationChannel(
                 channelId,
                 "Score Updates",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
             )
             notificationManager.createNotificationChannel(channel)
         }
@@ -43,14 +66,14 @@ class ScoreUpdateWorker(
             applicationContext, 
             0, 
             intent, 
-            PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info) // Replace with app icon
+            .setSmallIcon(android.R.drawable.ic_dialog_info) 
             .setContentTitle(title)
             .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()

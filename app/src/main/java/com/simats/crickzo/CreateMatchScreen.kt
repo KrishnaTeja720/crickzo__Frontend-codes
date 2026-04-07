@@ -1,5 +1,6 @@
 package com.simats.crickzo
 
+import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -25,54 +27,77 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CreateMatchScreen(onBack: () -> Unit, onContinue: (Int, String, String) -> Unit) {
+fun CreateMatchScreen(onBack: () -> Unit, onContinue: (Int, String, String, String, String) -> Unit) {
     val coroutineScope = rememberCoroutineScope()
     val apiService = RetrofitClient.apiService
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
-    var matchFormat by remember { mutableStateOf("T20 (20 overs)") }
-    var otherFormat by remember { mutableStateOf("") }
+    var matchFormat by remember { mutableStateOf("20") }
     var teamAName by remember { mutableStateOf("") }
     var teamBName by remember { mutableStateOf("") }
     var venue by remember { mutableStateOf("") }
     var showAdvancedOptions by remember { mutableStateOf(false) }
     
     var tossWinner by remember { mutableStateOf("Team A") }
+    var tossDecision by remember { mutableStateOf("Batting") }
     var pitchType by remember { mutableStateOf("Balanced") }
     var weatherConditions by remember { mutableStateOf("Normal") }
 
     var isCreating by remember { mutableStateOf(false) }
 
-    val isContinueEnabled = teamAName.isNotBlank() && teamBName.isNotBlank() && (matchFormat != "Others" || otherFormat.isNotBlank()) && !isCreating
+    val isContinueEnabled = teamAName.isNotBlank() && teamBName.isNotBlank() && 
+        matchFormat.isNotBlank() && matchFormat.toIntOrNull() != null && matchFormat.toInt() > 0 && 
+        !isCreating
 
     fun handleCreateMatch() {
+        val sharedPrefs = context.getSharedPreferences("crickzo_prefs", Context.MODE_PRIVATE)
+        val userId = sharedPrefs.getInt("user_id", -1)
+
+        if (userId <= 0) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("User not logged in")
+            }
+            return
+        }
+
+        val nameRegex = Regex("^[A-Za-z\\s]+$")
+        if (!nameRegex.matches(teamAName) || !nameRegex.matches(teamBName)) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("Team names must only contain alphabetical characters")
+            }
+            return
+        }
+
         isCreating = true
         coroutineScope.launch {
             try {
-                val formatToSend = if (matchFormat == "Others") otherFormat else matchFormat
                 val request = CreateMatchRequest(
-                    teamA = teamAName,
-                    teamB = teamBName,
-                    format = formatToSend,
+                    user_id = userId,
+                    team_a = teamAName,
+                    team_b = teamBName,
+                    format = matchFormat,
                     venue = venue,
-                    toss = tossWinner,
+                    toss = if (tossWinner == "Team A") teamAName else teamBName,
+                    toss_decision = tossDecision,
                     pitch = pitchType,
                     weather = weatherConditions
                 )
                 
-                try {
-                    val response = apiService.createMatch(request)
-                    if (response.isSuccessful) {
-                        val matchId = response.body()?.matchId ?: 0
-                        onContinue(matchId, teamAName, teamBName)
+                val response = apiService.createMatch(request)
+                if (response.isSuccessful) {
+                    val responseBody = response.body()
+                    if (responseBody != null && responseBody.status == "success") {
+                        val matchId = responseBody.matchId
+                        onContinue(matchId, teamAName, teamBName, if (tossWinner == "Team A") teamAName else teamBName, tossDecision)
                     } else {
-                        // Fallback for demo/dev purposes
-                        onContinue(0, teamAName, teamBName)
+                        snackbarHostState.showSnackbar("Error: ${responseBody?.message ?: "Unknown error"}")
                     }
-                } catch (e: Exception) {
-                    onContinue(0, teamAName, teamBName)
+                } else {
+                    snackbarHostState.showSnackbar("Error: ${response.message()}")
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                snackbarHostState.showSnackbar("Network error: ${e.localizedMessage}")
             } finally {
                 isCreating = false
             }
@@ -86,34 +111,34 @@ fun CreateMatchScreen(onBack: () -> Unit, onContinue: (Int, String, String) -> U
         "Lucknow Super Giants", "India", "Australia", "England"
     ).sorted()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
-    ) {
-        // Header
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF1E40AF))
-                .padding(top = 40.dp, bottom = 20.dp, start = 16.dp, end = 16.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(text = "Create New Match", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text(text = "Step 1 of 2: Match Details", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1E40AF))
+                    .padding(top = 40.dp, bottom = 20.dp, start = 16.dp, end = 16.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(text = "Create New Match", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "Step 1 of 2: Match Details", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                    }
                 }
             }
         }
-
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color(0xFFF8FAFC))
                 .verticalScroll(rememberScrollState())
+                .padding(innerPadding)
                 .padding(20.dp)
         ) {
             // Main Details Card
@@ -124,26 +149,19 @@ fun CreateMatchScreen(onBack: () -> Unit, onContinue: (Int, String, String) -> U
                 border = CardDefaults.outlinedCardBorder()
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    MatchDropdownField(
-                        label = "Match Format *",
+                    CreateMatchField(
+                        label = "Number of Overs *",
                         value = matchFormat,
                         onValueChange = { 
-                            matchFormat = it 
-                            if (it != "Others") otherFormat = ""
+                            if (it.isEmpty() || (it.all { char -> char.isDigit() } && it.length <= 3)) {
+                                matchFormat = it
+                            }
                         },
-                        placeholder = "Select format",
-                        options = listOf("T20 (20 overs)", "ODI (50 overs)", "Test (unlimited overs)", "Others")
-                    )
-                    
-                    if (matchFormat == "Others") {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        CreateMatchField(
-                            label = "Specify Match Format *",
-                            value = otherFormat,
-                            onValueChange = { otherFormat = it },
-                            placeholder = "e.g., 5-over match"
+                        placeholder = "e.g., 20",
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
                         )
-                    }
+                    )
 
                     Spacer(modifier = Modifier.height(20.dp))
                     
@@ -204,6 +222,14 @@ fun CreateMatchScreen(onBack: () -> Unit, onContinue: (Int, String, String) -> U
                                 onValueChange = { tossWinner = it },
                                 placeholder = "Select toss winner",
                                 options = listOf("Team A", "Team B")
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            MatchDropdownField(
+                                label = "Toss Decision",
+                                value = tossDecision,
+                                onValueChange = { tossDecision = it },
+                                placeholder = "Select toss decision",
+                                options = listOf("Batting", "Bowling")
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             MatchDropdownField(
@@ -369,7 +395,8 @@ fun CreateMatchField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
-    placeholder: String
+    placeholder: String,
+    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default
 ) {
     Column {
         Text(text = label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
@@ -380,6 +407,7 @@ fun CreateMatchField(
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text(placeholder, color = Color(0xFF94A3B8), fontSize = 14.sp) },
             shape = RoundedCornerShape(12.dp),
+            keyboardOptions = keyboardOptions,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Color(0xFF1E40AF),
                 unfocusedBorderColor = Color(0xFFF1F5F9),

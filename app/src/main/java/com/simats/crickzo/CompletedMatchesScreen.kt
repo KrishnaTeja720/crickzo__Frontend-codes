@@ -20,12 +20,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @Composable
 fun CompletedMatchesScreen(
+    userId: Int,
     matches: List<CompletedMatchInfo> = listOf(),
     onBack: () -> Unit
 ) {
@@ -34,42 +37,16 @@ fun CompletedMatchesScreen(
     var isLoading by remember { mutableStateOf(matches.isEmpty()) }
     var selectedMatch by remember { mutableStateOf<CompletedMatchInfo?>(null) }
 
-    val mockCompletedMatches = listOf(
-        CompletedMatchInfo(
-            matchId = 1,
-            teamA = "Gujarat Titans",
-            teamB = "Lucknow Super Giants",
-            scoreA = "172/5 (20.0)",
-            scoreB = "175/4 (19.3)",
-            result = "Lucknow Super Giants won by 6 wickets",
-            venue = "Narendra Modi Stadium",
-            date = "Yesterday"
-        ),
-        CompletedMatchInfo(
-            matchId = 2,
-            teamA = "Mumbai Indians",
-            teamB = "Chennai Super Kings",
-            scoreA = "156/8 (20.0)",
-            scoreB = "157/3 (18.1)",
-            result = "Chennai Super Kings won by 7 wickets",
-            venue = "Wankhede Stadium",
-            date = "2 days ago"
-        )
-    )
-
     LaunchedEffect(Unit) {
         if (matches.isEmpty()) {
             coroutineScope.launch {
                 try {
-                    val response = RetrofitClient.apiService.getCompletedMatches()
+                    val response = RetrofitClient.apiService.getCompletedMatches(userId)
                     if (response.isSuccessful) {
-                        completedMatches = response.body() ?: mockCompletedMatches
-                    } else {
-                        completedMatches = mockCompletedMatches
+                        completedMatches = response.body() ?: listOf()
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    completedMatches = mockCompletedMatches
                 } finally {
                     isLoading = false
                 }
@@ -79,12 +56,15 @@ fun CompletedMatchesScreen(
 
     if (selectedMatch == null) {
         CompletedMatchesList(
-            matches = if (completedMatches.isEmpty() && !isLoading) mockCompletedMatches else completedMatches,
+            userId = userId,
+            matches = completedMatches,
+            isLoading = isLoading,
             onBack = onBack,
             onMatchClick = { selectedMatch = it }
         )
     } else {
         CompletedMatchDetail(
+            userId = userId,
             match = selectedMatch!!,
             onBack = { selectedMatch = null }
         )
@@ -93,7 +73,9 @@ fun CompletedMatchesScreen(
 
 @Composable
 fun CompletedMatchesList(
+    userId: Int,
     matches: List<CompletedMatchInfo>,
+    isLoading: Boolean,
     onBack: () -> Unit,
     onMatchClick: (CompletedMatchInfo) -> Unit
 ) {
@@ -124,20 +106,64 @@ fun CompletedMatchesList(
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            items(matches) { match ->
-                CompletedMatchCard(match = match, onClick = { onMatchClick(match) })
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFF1E40AF))
+            }
+        } else if (matches.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(text = "No completed matches found", color = Color(0xFF64748B))
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                items(matches) { match ->
+                    CompletedMatchCard(userId = userId, match = match, onClick = { onMatchClick(match) })
+                }
             }
         }
     }
 }
 
 @Composable
-fun CompletedMatchCard(match: CompletedMatchInfo, onClick: () -> Unit) {
+fun CompletedMatchCard(userId: Int, match: CompletedMatchInfo, onClick: () -> Unit) {
+    var matchWithScores by remember { mutableStateOf(match) }
+    
+    // Fetch scores if they are missing in the summary list
+    LaunchedEffect(match.matchId) {
+        if (match.teamARuns == 0 && match.teamBRuns == 0) {
+            try {
+                val scoreA = RetrofitClient.apiService.getScoreboard(match.matchId.toString(), 1)
+                val scoreB = RetrofitClient.apiService.getScoreboard(match.matchId.toString(), 2)
+                
+                if (scoreA.isSuccessful || scoreB.isSuccessful) {
+                    matchWithScores = matchWithScores.copy(
+                        teamARuns = scoreA.body()?.runs ?: match.teamARuns,
+                        teamAWickets = scoreA.body()?.wickets ?: match.teamAWickets,
+                        teamAOvers = scoreA.body()?.overs?.toFloatOrNull() ?: match.teamAOvers,
+                        teamBRuns = scoreB.body()?.runs ?: match.teamBRuns,
+                        teamBWickets = scoreB.body()?.wickets ?: match.teamBWickets,
+                        teamBOvers = scoreB.body()?.overs?.toFloatOrNull() ?: match.teamBOvers
+                    )
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    val oversA = String.format(Locale.US, "%.1f", matchWithScores.teamAOvers)
+    val oversB = String.format(Locale.US, "%.1f", matchWithScores.teamBOvers)
+
+    val teamAScore = "${matchWithScores.teamARuns}/${matchWithScores.teamAWickets} ($oversA)"
+    val teamBScore = "${matchWithScores.teamBRuns}/${matchWithScores.teamBWickets} ($oversB)"
+    
+    val isTeamAWinner = match.winner?.trim().equals(match.teamA?.trim(), ignoreCase = true)
+    val isTeamBWinner = match.winner?.trim().equals(match.teamB?.trim(), ignoreCase = true)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -152,10 +178,11 @@ fun CompletedMatchCard(match: CompletedMatchInfo, onClick: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = match.date, color = Color(0xFF64748B), fontSize = 12.sp)
+                Text(text = "Match Completed", color = Color(0xFF64748B), fontSize = 12.sp)
                 Surface(color = Color(0xFFF1F5F9), shape = RoundedCornerShape(4.dp)) {
+                    val formatText = if (match.format?.all { it.isDigit() } == true) "${match.format} Overs" else (match.format ?: "T20")
                     Text(
-                        text = match.type, 
+                        text = formatText, 
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), 
                         color = Color(0xFF1E40AF), 
                         fontSize = 10.sp, 
@@ -167,26 +194,118 @@ fun CompletedMatchCard(match: CompletedMatchInfo, onClick: () -> Unit) {
             Spacer(Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text(text = match.teamA, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text(text = match.scoreA, color = Color(0xFF64748B), fontSize = 13.sp)
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = match.teamA ?: "Unknown", 
+                            fontWeight = if (isTeamAWinner) FontWeight.ExtraBold else FontWeight.Bold, 
+                            fontSize = 15.sp,
+                            color = if (isTeamAWinner) Color(0xFF1E40AF) else Color.Unspecified
+                        )
+                        if (isTeamAWinner) {
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.EmojiEvents, null, tint = Color(0xFFD97706), modifier = Modifier.size(14.dp))
+                        }
+                    }
+                    Text(text = teamAScore, color = Color(0xFF64748B), fontSize = 13.sp)
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(text = match.teamB, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text(text = match.scoreB, color = Color(0xFF64748B), fontSize = 13.sp)
+                
+                Text(
+                    text = "VS", 
+                    modifier = Modifier.padding(horizontal = 8.dp), 
+                    color = Color(0xFFCBD5E1), 
+                    fontSize = 12.sp, 
+                    fontWeight = FontWeight.Bold
+                )
+
+                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isTeamBWinner) {
+                            Icon(Icons.Default.EmojiEvents, null, tint = Color(0xFFD97706), modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = match.teamB ?: "Unknown", 
+                            fontWeight = if (isTeamBWinner) FontWeight.ExtraBold else FontWeight.Bold, 
+                            fontSize = 15.sp,
+                            color = if (isTeamBWinner) Color(0xFF1E40AF) else Color.Unspecified
+                        )
+                    }
+                    Text(text = teamBScore, color = Color(0xFF64748B), fontSize = 13.sp)
                 }
             }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = Color(0xFFF1F5F9))
             
-            Text(text = match.result, color = Color(0xFF059669), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            val resultDisplay = if (!match.winner.isNullOrEmpty()) {
+                if (match.winner.contains("Draw", ignoreCase = true)) "Match Drawn"
+                else "${match.winner} won the match"
+            } else {
+                match.result ?: "No Result Available"
+            }
+
+            Text(
+                text = resultDisplay,
+                color = Color(0xFF059669),
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp
+            )
         }
     }
 }
 
 @Composable
-fun CompletedMatchDetail(match: CompletedMatchInfo, onBack: () -> Unit) {
+fun CompletedMatchDetail(userId: Int, match: CompletedMatchInfo, onBack: () -> Unit) {
     var selectedTab by remember { mutableStateOf("Match Result") }
+    var matchWithScores by remember { mutableStateOf(match) }
+    var isScoreLoading by remember { mutableStateOf(false) }
+    var scorecardData by remember { mutableStateOf<ScorecardResponse?>(null) }
+    var isScorecardLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(match.matchId) {
+        isScoreLoading = true
+        try {
+            val scoreA = RetrofitClient.apiService.getScoreboard(match.matchId.toString(), 1)
+            val scoreB = RetrofitClient.apiService.getScoreboard(match.matchId.toString(), 2)
+            
+            if (scoreA.isSuccessful || scoreB.isSuccessful) {
+                matchWithScores = matchWithScores.copy(
+                    teamARuns = scoreA.body()?.runs ?: match.teamARuns,
+                    teamAWickets = scoreA.body()?.wickets ?: match.teamAWickets,
+                    teamAOvers = scoreA.body()?.overs?.toFloatOrNull() ?: match.teamAOvers,
+                    teamBRuns = scoreB.body()?.runs ?: match.teamBRuns,
+                    teamBWickets = scoreB.body()?.wickets ?: match.teamBWickets,
+                    teamBOvers = scoreB.body()?.overs?.toFloatOrNull() ?: match.teamBOvers
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            isScoreLoading = false
+        }
+    }
+
+    LaunchedEffect(selectedTab, match.matchId) {
+        if (selectedTab == "Scorecard" && scorecardData == null) {
+            isScorecardLoading = true
+            try {
+                val response = RetrofitClient.apiService.getScorecard(match.matchId.toString())
+                if (response.isSuccessful) {
+                    scorecardData = response.body()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isScorecardLoading = false
+            }
+        }
+    }
+
+    val oversA = String.format(Locale.US, "%.1f", matchWithScores.teamAOvers)
+    val oversB = String.format(Locale.US, "%.1f", matchWithScores.teamBOvers)
+
+    val teamAScore = "${matchWithScores.teamARuns}/${matchWithScores.teamAWickets} ($oversA)"
+    val teamBScore = "${matchWithScores.teamBRuns}/${matchWithScores.teamBWickets} ($oversB)"
 
     Column(
         modifier = Modifier
@@ -212,13 +331,13 @@ fun CompletedMatchDetail(match: CompletedMatchInfo, onBack: () -> Unit) {
                     Spacer(Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "${match.teamA} vs ${match.teamB}",
+                            text = "${match.teamA ?: "Team A"} vs ${match.teamB ?: "Team B"}",
                             color = Color.White,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${match.venue} • ${match.type}",
+                            text = "${match.venue ?: "Venue"} • T20",
                             color = Color.White.copy(alpha = 0.7f),
                             fontSize = 12.sp
                         )
@@ -248,17 +367,17 @@ fun CompletedMatchDetail(match: CompletedMatchInfo, onBack: () -> Unit) {
                 ) {
                     MatchTabButton(
                         text = "Match Result",
-                        icon = Icons.Default.EmojiEvents,
+                        icon = null,
                         isSelected = selectedTab == "Match Result",
                         modifier = Modifier.weight(1f),
                         onClick = { selectedTab = "Match Result" }
                     )
                     MatchTabButton(
-                        text = "AI Predictions",
-                        icon = Icons.Default.AutoAwesome,
-                        isSelected = selectedTab == "AI Predictions",
+                        text = "Scorecard",
+                        icon = null,
+                        isSelected = selectedTab == "Scorecard",
                         modifier = Modifier.weight(1f),
-                        onClick = { selectedTab = "AI Predictions" }
+                        onClick = { selectedTab = "Scorecard" }
                     )
                 }
             }
@@ -293,15 +412,22 @@ fun CompletedMatchDetail(match: CompletedMatchInfo, onBack: () -> Unit) {
                             }
                         }
                         Spacer(Modifier.height(16.dp))
-                        Text(text = "Winner", color = Color(0xFF92400E), fontSize = 14.sp)
+                        Text(text = "Match Result", color = Color(0xFF92400E), fontSize = 14.sp)
+                        
+                        val resultText = if (!match.winner.isNullOrEmpty()) {
+                            if (match.winner.contains("Draw", ignoreCase = true)) "Match Drawn"
+                            else "${match.winner} won the match"
+                        } else {
+                            match.result ?: "No Result Available"
+                        }
+                        
                         Text(
-                            text = if (match.result.contains(match.teamA, ignoreCase = true)) match.teamA else match.teamB,
+                            text = resultText,
                             color = Color(0xFF92400E),
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            textAlign = TextAlign.Center
                         )
-                        Spacer(Modifier.height(8.dp))
-                        Text(text = match.result, color = Color(0xFF92400E).copy(alpha = 0.7f), fontSize = 14.sp)
                     }
                 }
 
@@ -317,15 +443,46 @@ fun CompletedMatchDetail(match: CompletedMatchInfo, onBack: () -> Unit) {
                             Box(modifier = Modifier.width(4.dp).height(16.dp).background(Color(0xFF1E40AF), RoundedCornerShape(2.dp)))
                             Spacer(Modifier.width(8.dp))
                             Text(text = "Full Scorecard", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            if (isScoreLoading) {
+                                Spacer(Modifier.width(8.dp))
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color(0xFF1E40AF))
+                            }
                         }
                         Spacer(Modifier.height(20.dp))
-                        InningsRow("1st Innings", match.teamA, match.scoreA, "", "172", "5", "20.0", Color(0xFF1E40AF))
+                        
+                        InningsRow(
+                            title = "1st Innings",
+                            teamName = matchWithScores.teamA ?: "Team A",
+                            score = teamAScore,
+                            runs = matchWithScores.teamARuns.toString(),
+                            wickets = matchWithScores.teamAWickets.toString(),
+                            overNum = oversA,
+                            color = Color(0xFF1E40AF)
+                        )
                         HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp), color = Color(0xFFF1F5F9))
-                        InningsRow("2nd Innings", match.teamB, match.scoreB, "", "175", "4", "19.3", Color(0xFF3B82F6))
+                        InningsRow(
+                            title = "2nd Innings",
+                            teamName = matchWithScores.teamB ?: "Team B",
+                            score = teamBScore,
+                            runs = matchWithScores.teamBRuns.toString(),
+                            wickets = matchWithScores.teamBWickets.toString(),
+                            overNum = oversB,
+                            color = Color(0xFF3B82F6)
+                        )
                     }
                 }
             } else {
-                AIPredictionsContent()
+                if (isScorecardLoading) {
+                    Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Color(0xFF1E40AF))
+                    }
+                } else {
+                    scorecardData?.let { data ->
+                        ScorecardViewFragment(data = data, teamA = match.teamA ?: "Team A", teamB = match.teamB ?: "Team B")
+                    } ?: Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                        Text("Scorecard data currently unavailable")
+                    }
+                }
             }
         }
     }
@@ -334,7 +491,7 @@ fun CompletedMatchDetail(match: CompletedMatchInfo, onBack: () -> Unit) {
 @Composable
 fun MatchTabButton(
     text: String,
-    icon: ImageVector,
+    icon: ImageVector?,
     isSelected: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
@@ -352,13 +509,15 @@ fun MatchTabButton(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                icon,
-                null,
-                tint = if (isSelected) Color(0xFF1E40AF) else Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(8.dp))
+            if (icon != null) {
+                Icon(
+                    icon,
+                    null,
+                    tint = if (isSelected) Color(0xFF1E40AF) else Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+            }
             Text(
                 text = text,
                 color = if (isSelected) Color(0xFF1E40AF) else Color.White.copy(alpha = 0.7f),
@@ -374,7 +533,6 @@ fun InningsRow(
     title: String,
     teamName: String,
     score: String,
-    overs: String,
     runs: String,
     wickets: String,
     overNum: String,
@@ -416,28 +574,96 @@ fun ScoreDetailItem(label: String, value: String) {
         Text(text = value, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
 }
-
 @Composable
-fun AIPredictionsContent() {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFF7C3AED), modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(text = "AI Post-Match Analysis", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+fun ScorecardViewFragment(data: ScorecardResponse, teamA: String, teamB: String) {
+    var scorecardTab by remember { mutableStateOf(teamA) }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = CardDefaults.outlinedCardBorder()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp).background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp)).padding(4.dp)) {
+                listOf(teamA, teamB).forEach { team ->
+                    val isSelected = scorecardTab.equals(team, ignoreCase = true)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(if (isSelected) Color.White else Color.Transparent, RoundedCornerShape(6.dp))
+                            .clickable { scorecardTab = team }
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = team,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color(0xFF1E40AF) else Color.Gray,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "The match was highly competitive. Lucknow's strategy to accelerate in the middle overs proved decisive against Gujarat's bowling attack.",
-                    color = Color(0xFF475569),
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                )
+            }
+            
+            val teamData = if (scorecardTab.equals(teamA, ignoreCase = true)) data.teamA else data.teamB
+            
+            if (teamData == null) {
+                Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                    Text("Team statistics not available")
+                }
+            } else {
+            
+            Text("Batting", fontWeight = FontWeight.ExtraBold, color = Color(0xFF1E40AF), fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
+            
+            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFF8FAFC)).padding(8.dp)) {
+                Text("Batsman", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+                Text("R", modifier = Modifier.width(30.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+                Text("B", modifier = Modifier.width(30.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+                Text("4s", modifier = Modifier.width(25.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+                Text("6s", modifier = Modifier.width(25.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+            }
+            
+                teamData.batting.forEach { b ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(b.playerName, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+                            Text(b.status, fontSize = 10.sp, color = Color.Gray)
+                        }
+                        Text(b.runs.toString(), modifier = Modifier.width(30.dp), textAlign = TextAlign.End, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(b.balls.toString(), modifier = Modifier.width(30.dp), textAlign = TextAlign.End, fontSize = 13.sp)
+                        Text(b.fours.toString(), modifier = Modifier.width(25.dp), textAlign = TextAlign.End, fontSize = 13.sp)
+                        Text(b.sixes.toString(), modifier = Modifier.width(25.dp), textAlign = TextAlign.End, fontSize = 13.sp)
+                    }
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                }
+
+            Spacer(Modifier.height(24.dp))
+
+            Text("Bowling", fontWeight = FontWeight.ExtraBold, color = Color(0xFF1E40AF), fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
+
+            Row(modifier = Modifier.fillMaxWidth().background(Color(0xFFF8FAFC)).padding(8.dp)) {
+                Text("Bowler", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+                Text("O", modifier = Modifier.width(35.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+                Text("M", modifier = Modifier.width(25.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+                Text("R", modifier = Modifier.width(30.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+                Text("W", modifier = Modifier.width(30.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF64748B))
+            }
+            
+            if (teamData.bowling.isEmpty()) {
+                Text("No bowling stats yet", modifier = Modifier.padding(16.dp).fillMaxWidth(), textAlign = TextAlign.Center, color = Color.Gray, fontSize = 12.sp)
+            }
+
+                teamData.bowling.forEach { bo ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(bo.playerName, modifier = Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+                        Text(bo.overs, modifier = Modifier.width(35.dp), textAlign = TextAlign.End, fontSize = 13.sp)
+                        Text(bo.maidens.toString(), modifier = Modifier.width(25.dp), textAlign = TextAlign.End, fontSize = 13.sp)
+                        Text(bo.runs.toString(), modifier = Modifier.width(30.dp), textAlign = TextAlign.End, fontSize = 13.sp)
+                        Text(bo.wickets.toString(), modifier = Modifier.width(30.dp), textAlign = TextAlign.End, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
+                    }
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                }
             }
         }
     }

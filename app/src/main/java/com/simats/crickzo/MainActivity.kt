@@ -1,6 +1,7 @@
 package com.simats.crickzo
 
 import android.Manifest
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -10,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.work.*
 import com.simats.crickzo.ui.theme.CrickzoTheme
+import kotlinx.coroutines.launch
 import java.util.*
 import java.util.concurrent.TimeUnit
 
@@ -33,33 +35,70 @@ class MainActivity : ComponentActivity() {
             scheduleScoreUpdate()
         }
 
+        val sharedPrefs = getSharedPreferences("crickzo_prefs", Context.MODE_PRIVATE)
+
         setContent {
             CrickzoTheme {
+                val coroutineScope = rememberCoroutineScope()
+                val apiService = RetrofitClient.apiService
+                
                 var currentScreen by remember { mutableStateOf("splash") }
-                var userEmail by remember { mutableStateOf("cricket.fan@email.com") }
-                var userName by remember { mutableStateOf("Cricket Fan") }
+                
+                val savedEmail = sharedPrefs.getString("user_email", null)
+                val savedName = sharedPrefs.getString("user_name", null)
+                val savedUserId = sharedPrefs.getInt("user_id", 0)
+                
+                var userEmail by remember { mutableStateOf(savedEmail ?: "") }
+                var userName by remember { mutableStateOf(savedName ?: "") }
+                var userId by remember { mutableIntStateOf(savedUserId) }
+                var userOtp by remember { mutableStateOf("") }
                 var otpSubtitle by remember { mutableStateOf("Complete Your Registration") }
 
                 when (currentScreen) {
                     "splash" -> {
                         MainSplashScreen(
-                            onFinished = { currentScreen = "login" }
+                            onFinished = { 
+                                if (sharedPrefs.getString("user_email", null) != null) {
+                                    currentScreen = "home"
+                                } else {
+                                    currentScreen = "login"
+                                }
+                            }
                         )
                     }
                     "login" -> {
                         LoginScreen(
                             onSignUpClick = { currentScreen = "signup" },
                             onForgotPasswordClick = { currentScreen = "forgot_password" },
-                            onLoginClick = { currentScreen = "home" }
+                            onLoginSuccess = { name, email, id ->
+                                userName = name
+                                userEmail = email
+                                userId = id
+                                sharedPrefs.edit()
+                                    .putString("user_email", email)
+                                    .putString("user_name", name)
+                                    .putInt("user_id", id)
+                                    .apply()
+                                currentScreen = "home"
+                            }
                         )
                     }
                     "signup" -> {
                         SignUpScreen(
                             onBackToLogin = { currentScreen = "login" },
-                            onCreateAccount = { email, name ->
+                            onSignUpSuccess = { email, name ->
                                 userEmail = email
                                 userName = name
                                 otpSubtitle = "Complete Your Registration"
+                                
+                                // Trigger OTP generation because backend signup doesn't send it automatically
+                                coroutineScope.launch {
+                                    try {
+                                        apiService.resendOtp(ResendOtpRequest(email))
+                                    } catch (e: Exception) {
+                                        // Silent fail, user can click "Resend" on OTP screen
+                                    }
+                                }
                                 currentScreen = "verify_otp"
                             }
                         )
@@ -67,7 +106,7 @@ class MainActivity : ComponentActivity() {
                     "forgot_password" -> {
                         ForgotPasswordScreen(
                             onBackToLogin = { currentScreen = "login" },
-                            onSendCode = { email ->
+                            onCodeSent = { email ->
                                 userEmail = email
                                 otpSubtitle = "Verify Your Identity"
                                 currentScreen = "verify_otp"
@@ -85,8 +124,24 @@ class MainActivity : ComponentActivity() {
                                     currentScreen = "signup"
                                 }
                             },
-                            onVerify = { 
-                                currentScreen = "login" 
+                            onVerifySuccess = { otp ->
+                                userOtp = otp
+                                if (otpSubtitle == "Verify Your Identity") {
+                                    currentScreen = "reset_password"
+                                } else {
+                                    // Account successfully created and verified
+                                    currentScreen = "login"
+                                }
+                            }
+                        )
+                    }
+                    "reset_password" -> {
+                        ResetPasswordScreen(
+                            email = userEmail,
+                            otp = userOtp,
+                            onBack = { currentScreen = "verify_otp" },
+                            onResetSuccess = {
+                                currentScreen = "login"
                             }
                         )
                     }
@@ -94,11 +149,19 @@ class MainActivity : ComponentActivity() {
                         HomeScreen(
                             userName = userName,
                             userEmail = userEmail,
+                            userId = userId,
                             onUpdateProfile = { name, email ->
                                 userName = name
                                 userEmail = email
+                                sharedPrefs.edit()
+                                    .putString("user_email", email)
+                                    .putString("user_name", name)
+                                    .apply()
                             },
-                            onLogout = { currentScreen = "login" }
+                            onLogout = { 
+                                sharedPrefs.edit().clear().apply()
+                                currentScreen = "login" 
+                            }
                         )
                     }
                 }
@@ -107,21 +170,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun scheduleScoreUpdate() {
-        val calendar = Calendar.getInstance()
-        val now = calendar.timeInMillis
-        
-        calendar.set(Calendar.HOUR_OF_DAY, 9)
-        calendar.set(Calendar.MINUTE, 30)
-        calendar.set(Calendar.SECOND, 0)
-        
-        if (calendar.timeInMillis <= now) {
-            calendar.add(Calendar.DAY_OF_YEAR, 1)
-        }
-        
-        val delay = calendar.timeInMillis - now
-        
-        val scoreUpdateRequest = PeriodicWorkRequestBuilder<ScoreUpdateWorker>(24, TimeUnit.HOURS)
-            .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+        val scoreUpdateRequest = PeriodicWorkRequestBuilder<ScoreUpdateWorker>(1, TimeUnit.HOURS)
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -130,7 +179,7 @@ class MainActivity : ComponentActivity() {
             .build()
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "DailyScoreUpdate",
+            "HourlyScoreUpdate",
             ExistingPeriodicWorkPolicy.UPDATE,
             scoreUpdateRequest
         )

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,61 +22,28 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
 @Composable
-fun LiveMatchesScreen(onBack: () -> Unit, onUpdateScore: (LiveMatchData) -> Unit) {
+fun LiveMatchesScreen(
+    userId: Int,
+    onBack: () -> Unit,
+    onUpdateScore: (LiveMatchData) -> Unit,
+    onViewPredictions: (LiveMatchData) -> Unit
+) {
     val coroutineScope = rememberCoroutineScope()
     var liveMatches by remember { mutableStateOf(listOf<LiveMatchData>()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    val mockLiveMatches = listOf(
-        LiveMatchData(
-            matchId = 101,
-            teamA = "Mumbai Indians",
-            teamB = "Chennai Super Kings",
-            venue = "Wankhede Stadium",
-            runs = 142,
-            wickets = 3,
-            overs = 15.2,
-            crr = 9.26,
-            team1 = "Mumbai Indians",
-            team2 = "Chennai Super Kings",
-            score1 = "142/3",
-            overs1 = "(15.2)",
-            teamAPlayers = listOf("Rohit Sharma", "Ishan Kishan", "Suryakumar Yadav", "Hardik Pandya", "Jasprit Bumrah"),
-            teamBPlayers = listOf("MS Dhoni", "Ruturaj Gaikwad", "Ravindra Jadeja", "Shivam Dube", "Matheesha Pathirana")
-        ),
-        LiveMatchData(
-            matchId = 102,
-            teamA = "Royal Challengers Bangalore",
-            teamB = "Kolkata Knight Riders",
-            venue = "M. Chinnaswamy Stadium",
-            runs = 98,
-            wickets = 2,
-            overs = 10.4,
-            crr = 9.19,
-            team1 = "Royal Challengers Bangalore",
-            team2 = "Kolkata Knight Riders",
-            score1 = "185/6",
-            score2 = "98/2",
-            overs1 = "(20.0)",
-            overs2 = "(10.4)",
-            target = "186",
-            teamAPlayers = listOf("Virat Kohli", "Faf du Plessis", "Glenn Maxwell", "Mohammed Siraj", "Dinesh Karthik"),
-            teamBPlayers = listOf("Shreyas Iyer", "Sunil Narine", "Andre Russell", "Rinku Singh", "Varun Chakaravarthy")
-        )
-    )
-
     LaunchedEffect(Unit) {
         coroutineScope.launch {
             try {
-                val response = RetrofitClient.apiService.getLiveMatches()
+                val response = RetrofitClient.apiService.getLiveMatches(userId)
                 if (response.isSuccessful) {
-                    liveMatches = response.body() ?: mockLiveMatches
+                    liveMatches = response.body() ?: emptyList()
                 } else {
-                    liveMatches = mockLiveMatches
+                    liveMatches = emptyList()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                liveMatches = mockLiveMatches
+                liveMatches = emptyList()
             } finally {
                 isLoading = false
             }
@@ -124,7 +92,11 @@ fun LiveMatchesScreen(onBack: () -> Unit, onUpdateScore: (LiveMatchData) -> Unit
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(liveMatches) { match ->
-                    LiveMatchCard(match = match, onUpdateScore = { onUpdateScore(match) })
+                    LiveMatchCard(
+                        match = match,
+                        onUpdateScore = { onUpdateScore(match) },
+                        onViewPredictions = { onViewPredictions(match) }
+                    )
                 }
             }
         }
@@ -132,7 +104,7 @@ fun LiveMatchesScreen(onBack: () -> Unit, onUpdateScore: (LiveMatchData) -> Unit
 }
 
 @Composable
-fun LiveMatchCard(match: LiveMatchData, onUpdateScore: () -> Unit) {
+fun LiveMatchCard(match: LiveMatchData, onUpdateScore: () -> Unit, onViewPredictions: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -165,7 +137,7 @@ fun LiveMatchCard(match: LiveMatchData, onUpdateScore: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF94A3B8))
                     Spacer(Modifier.width(4.dp))
-                    Text(text = match.venue, color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Text(text = match.venue ?: "Local Ground", color = Color(0xFF94A3B8), fontSize = 12.sp)
                 }
             }
 
@@ -177,8 +149,8 @@ fun LiveMatchCard(match: LiveMatchData, onUpdateScore: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(text = match.teamA, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1E293B))
-                    Text(text = match.teamB, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1E293B))
+                    Text(text = match.teamA ?: "Team A", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1E293B))
+                    Text(text = match.teamB ?: "Team B", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1E293B))
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(text = "${match.runs}/${match.wickets}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1E293B))
@@ -205,16 +177,28 @@ fun LiveMatchCard(match: LiveMatchData, onUpdateScore: () -> Unit) {
 
             Spacer(Modifier.height(20.dp))
 
-            Button(
-                onClick = onUpdateScore,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E40AF))
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = onUpdateScore,
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E40AF))
+                ) {
                     Icon(Icons.Default.Timeline, contentDescription = null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Update Score", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Score", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+                
+                OutlinedButton(
+                    onClick = onViewPredictions,
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E40AF)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1E40AF))
+                ) {
+                    Icon(Icons.Default.QueryStats, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Predictions", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
         }

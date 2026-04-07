@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,11 +27,15 @@ fun AddPlayersScreen(
     matchId: Int,
     teamAName: String,
     teamBName: String,
+    tossWinner: String,
+    tossDecision: String,
     onBack: () -> Unit,
     onStartMatch: (List<String>, List<String>, String, String, String) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     val apiService = RetrofitClient.apiService
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     var teamAPlayers by remember { mutableStateOf(listOf<String>()) }
     var teamBPlayers by remember { mutableStateOf(listOf<String>()) }
@@ -48,31 +53,39 @@ fun AddPlayersScreen(
     ).distinct().sorted()
 
     fun handleStartMatchBackend(striker: String, nonStriker: String, bowler: String) {
+        if (isStarting) return
         isStarting = true
         coroutineScope.launch {
             try {
-                // 1. Add Players for Team A
-                apiService.addPlayers(AddPlayersRequest(matchId, teamAName, teamAPlayers))
-                // 2. Add Players for Team B
-                apiService.addPlayers(AddPlayersRequest(matchId, teamBName, teamBPlayers))
-                
-                // 3. Start Match with opening pair
-                val startReq = StartMatchRequest(
+                // 1. Setup teams and players using MatchSetupRequest
+                val setupReq = MatchSetupRequest(
                     matchId = matchId,
-                    striker = striker,
-                    nonStriker = nonStriker,
-                    bowler = bowler
+                    teamAPlayers = teamAPlayers,
+                    teamBPlayers = teamBPlayers
                 )
-                val res = apiService.startMatch(startReq)
+                val setupRes = apiService.matchSetup(setupReq)
                 
-                if (res.isSuccessful) {
-                    onStartMatch(teamAPlayers, teamBPlayers, striker, nonStriker, bowler)
+                if (setupRes.isSuccessful) {
+                    // 2. Start Match with opening pair
+                    val startReq = StartMatchRequest(
+                        matchId = matchId,
+                        striker = striker,
+                        nonStriker = nonStriker,
+                        bowler = bowler
+                    )
+                    val startRes = apiService.startMatch(startReq)
+                    
+                    if (startRes.isSuccessful) {
+                        onStartMatch(teamAPlayers, teamBPlayers, striker, nonStriker, bowler)
+                    } else {
+                        snackbarHostState.showSnackbar("Failed to start match: ${startRes.message()}")
+                    }
                 } else {
-                    // Fallback for demo if backend is not fully ready
-                    onStartMatch(teamAPlayers, teamBPlayers, striker, nonStriker, bowler)
+                    snackbarHostState.showSnackbar("Failed to setup players: ${setupRes.message()}")
                 }
             } catch (e: Exception) {
-                // Fallback for demo
+                snackbarHostState.showSnackbar("Connection error: ${e.localizedMessage}")
+                // Fallback for demo purposes if backend is partially implemented
                 onStartMatch(teamAPlayers, teamBPlayers, striker, nonStriker, bowler)
             } finally {
                 isStarting = false
@@ -82,6 +95,7 @@ fun AddPlayersScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Box(
                 modifier = Modifier
@@ -104,7 +118,7 @@ fun AddPlayersScreen(
             Surface(modifier = Modifier.fillMaxWidth(), color = Color.White, shadowElevation = 8.dp) {
                 Button(
                     onClick = { showStartSetupDialog = true },
-                    enabled = teamAPlayers.size >= 2 && teamBPlayers.size >= 1 && !isStarting,
+                    enabled = teamAPlayers.size == 11 && teamBPlayers.size == 11 && !isStarting,
                     modifier = Modifier.fillMaxWidth().padding(16.dp).height(56.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E40AF))
@@ -127,13 +141,30 @@ fun AddPlayersScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
+            val nameRegex = Regex("^[A-Za-z\\s]+$")
+            
             item {
                 TeamCard(
                     teamName = teamAName.ifBlank { "Team A" },
                     players = teamAPlayers,
                     inputValue = playerAInput,
                     onInputChange = { playerAInput = it },
-                    onAdd = { if (playerAInput.isNotBlank()) { teamAPlayers = teamAPlayers + playerAInput.trim(); playerAInput = "" } },
+                    onAdd = { 
+                        if (playerAInput.isNotBlank()) {
+                            if (teamAPlayers.size >= 11) {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Team $teamAName already has 11 players")
+                                }
+                            } else if (nameRegex.matches(playerAInput)) {
+                                teamAPlayers = teamAPlayers + playerAInput.trim()
+                                playerAInput = ""
+                            } else {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Player name must be alphabetical")
+                                }
+                            }
+                        } 
+                    },
                     onRemove = { index -> teamAPlayers = teamAPlayers.toMutableList().apply { removeAt(index) } },
                     suggestions = playerSuggestions
                 )
@@ -144,7 +175,22 @@ fun AddPlayersScreen(
                     players = teamBPlayers,
                     inputValue = playerBInput,
                     onInputChange = { playerBInput = it },
-                    onAdd = { if (playerBInput.isNotBlank()) { teamBPlayers = teamBPlayers + playerBInput.trim(); playerBInput = "" } },
+                    onAdd = { 
+                        if (playerBInput.isNotBlank()) {
+                            if (teamBPlayers.size >= 11) {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Team $teamBName already has 11 players")
+                                }
+                            } else if (nameRegex.matches(playerBInput)) {
+                                teamBPlayers = teamBPlayers + playerBInput.trim()
+                                playerBInput = ""
+                            } else {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Player name must be alphabetical")
+                                }
+                            }
+                        } 
+                    },
                     onRemove = { index -> teamBPlayers = teamBPlayers.toMutableList().apply { removeAt(index) } },
                     suggestions = playerSuggestions
                 )
@@ -153,9 +199,12 @@ fun AddPlayersScreen(
     }
 
     if (showStartSetupDialog) {
+        val isABattingFirst = (tossWinner == teamAName && tossDecision == "Batting") || 
+                             (tossWinner == teamBName && tossDecision == "Bowling")
+        
         StartMatchSetupDialog(
-            teamAPlayers = teamAPlayers,
-            teamBPlayers = teamBPlayers,
+            battingTeamPlayers = if (isABattingFirst) teamAPlayers else teamBPlayers,
+            bowlingTeamPlayers = if (isABattingFirst) teamBPlayers else teamAPlayers,
             onDismiss = { showStartSetupDialog = false },
             onConfirm = { striker, nonStriker, bowler ->
                 handleStartMatchBackend(striker, nonStriker, bowler)
@@ -166,14 +215,14 @@ fun AddPlayersScreen(
 
 @Composable
 fun StartMatchSetupDialog(
-    teamAPlayers: List<String>,
-    teamBPlayers: List<String>,
+    battingTeamPlayers: List<String>,
+    bowlingTeamPlayers: List<String>,
     onDismiss: () -> Unit,
     onConfirm: (String, String, String) -> Unit
 ) {
-    var striker by remember { mutableStateOf(teamAPlayers.getOrNull(0) ?: "") }
-    var nonStriker by remember { mutableStateOf(teamAPlayers.getOrNull(1) ?: "") }
-    var bowler by remember { mutableStateOf(teamBPlayers.getOrNull(0) ?: "") }
+    var striker by remember { mutableStateOf(battingTeamPlayers.getOrNull(0) ?: "") }
+    var nonStriker by remember { mutableStateOf(battingTeamPlayers.getOrNull(1) ?: "") }
+    var bowler by remember { mutableStateOf(bowlingTeamPlayers.getOrNull(0) ?: "") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -181,11 +230,11 @@ fun StartMatchSetupDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Select Openers", fontWeight = FontWeight.Bold)
-                DropdownSelector(label = "Striker", selected = striker, options = teamAPlayers) { striker = it }
-                DropdownSelector(label = "Non-Striker", selected = nonStriker, options = teamAPlayers.filter { it != striker }) { nonStriker = it }
+                DropdownSelector(label = "Striker", selected = striker, options = battingTeamPlayers) { striker = it }
+                DropdownSelector(label = "Non-Striker", selected = nonStriker, options = battingTeamPlayers.filter { it != striker }) { nonStriker = it }
                 Spacer(Modifier.height(8.dp))
                 Text("Select Opening Bowler", fontWeight = FontWeight.Bold)
-                DropdownSelector(label = "Bowler", selected = bowler, options = teamBPlayers) { bowler = it }
+                DropdownSelector(label = "Bowler", selected = bowler, options = bowlingTeamPlayers) { bowler = it }
             }
         },
         confirmButton = {

@@ -8,7 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -25,306 +25,217 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.simats.crickzo.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
-fun SignUpScreen(onBackToLogin: () -> Unit, onCreateAccount: (String, String) -> Unit) {
+fun SignUpScreen(onBackToLogin: () -> Unit, onSignUpSuccess: (String, String) -> Unit) {
+    val coroutineScope = rememberCoroutineScope()
+    val apiService = RetrofitClient.apiService
+    val snackbarHostState = remember { SnackbarHostState() }
+
     var fullName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmPasswordVisible by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(BgGradientStart, BgGradientEnd)
-                )
-            )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.height(48.dp))
+    fun handleSignUp() {
+        if (fullName.isBlank() || email.isBlank() || password.isBlank()) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Please fill all fields") }
+            return
+        }
+        if (password != confirmPassword) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Passwords do not match") }
+            return
+        }
+        val emailRegex = Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+        if (!emailRegex.matches(email)) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Please enter a valid email address") }
+            return
+        }
 
-            // Back button
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBackToLogin) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+        if (password.length < 8) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Password must be at least 8 characters") }
+            return
+        }
+        if (!password.any { it.isUpperCase() }) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Password must contain at least one uppercase letter") }
+            return
+        }
+        if (!password.any { it.isLowerCase() }) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Password must contain at least one lowercase letter") }
+            return
+        }
+        if (!password.any { it.isDigit() }) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Password must contain at least one number") }
+            return
+        }
+        val specialChars = "!@#$%^&*(),.?\":{}|<>"
+        if (!password.any { it in specialChars }) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("Password must contain at least one special character") }
+            return
+        }
+
+        isLoading = true
+        coroutineScope.launch {
+            try {
+                val request = SignupRequest(fullName, email, password)
+                val response = apiService.signup(request)
+                if (response.isSuccessful && response.body()?.status == "success") {
+                    onSignUpSuccess(email, fullName)
+                } else {
+                    snackbarHostState.showSnackbar(response.body()?.message ?: "Signup failed")
                 }
-                Text(
-                    text = "Back to login",
-                    color = Color.White,
-                    fontSize = 16.sp
-                )
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("Connection error: ${e.localizedMessage}")
+            } finally {
+                isLoading = false
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // User Icon
-            Surface(
-                modifier = Modifier.size(80.dp),
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.2f)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxSize()
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Create Account",
-                color = Color.White,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            Text(
-                text = "Join CrickAI Community",
-                color = Color.White.copy(alpha = 0.8f),
-                fontSize = 16.sp
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // White Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(24.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Sign Up",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black
-                    )
-
-                    Text(
-                        text = "Create your account to watch live matches",
-                        fontSize = 14.sp,
-                        color = GrayText,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Full Name Field
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "Full Name",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.Black,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        OutlinedTextField(
-                            value = fullName,
-                            onValueChange = { fullName = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Enter your full name", color = Color.LightGray) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Person, contentDescription = null, tint = GrayText)
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = PrimaryBlue,
-                                unfocusedBorderColor = Color(0xFFE5E7EB)
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Email Field
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "Email Address",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.Black,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        OutlinedTextField(
-                            value = email,
-                            onValueChange = { email = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Enter your email", color = Color.LightGray) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Email, contentDescription = null, tint = GrayText)
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = PrimaryBlue,
-                                unfocusedBorderColor = Color(0xFFE5E7EB)
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Password Field
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "Password",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.Black,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = { password = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Create a password", color = Color.LightGray) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Lock, contentDescription = null, tint = GrayText)
-                            },
-                            trailingIcon = {
-                                val image = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff
-                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                    Icon(imageVector = image, contentDescription = null, tint = GrayText)
-                                }
-                            },
-                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = PrimaryBlue,
-                                unfocusedBorderColor = Color(0xFFE5E7EB)
-                            )
-                        )
-                        Text(
-                            text = "Must be at least 8 characters",
-                            fontSize = 12.sp,
-                            color = GrayText,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Confirm Password Field
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "Confirm Password",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.Black,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        OutlinedTextField(
-                            value = confirmPassword,
-                            onValueChange = { confirmPassword = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Confirm your password", color = Color.LightGray) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Lock, contentDescription = null, tint = GrayText)
-                            },
-                            trailingIcon = {
-                                val image = if (confirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff
-                                IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
-                                    Icon(imageVector = image, contentDescription = null, tint = GrayText)
-                                }
-                            },
-                            visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = PrimaryBlue,
-                                unfocusedBorderColor = Color(0xFFE5E7EB)
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(text = "I agree to the", color = GrayText, fontSize = 14.sp)
-                        TextButton(onClick = { /* TODO */ }, contentPadding = PaddingValues(horizontal = 4.dp)) {
-                            Text(text = "Terms of Service", color = LinkBlue, fontSize = 14.sp)
-                        }
-                        Text(text = "and", color = GrayText, fontSize = 14.sp)
-                    }
-                    TextButton(onClick = { /* TODO */ }, contentPadding = PaddingValues(0.dp), modifier = Modifier.offset(y = (-12).dp)) {
-                        Text(text = "Privacy Policy", color = LinkBlue, fontSize = 14.sp)
-                    }
-
-                    Button(
-                        onClick = { onCreateAccount(email, fullName) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
-                    ) {
-                        Text(text = "Create Account", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(text = "Already have an account?", color = GrayText, fontSize = 14.sp)
-                        TextButton(onClick = onBackToLogin) {
-                            Text(text = "Sign In", color = LinkBlue, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Text(
-                text = "By signing up, you'll get access to live matches\nand AI predictions",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(bottom = 32.dp)
-            )
         }
     }
-}
 
-@Preview(showBackground = true)
-@Composable
-fun SignUpScreenPreview() {
-    CrickzoTheme {
-        SignUpScreen(onBackToLogin = {}, onCreateAccount = {_, _ ->})
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(brush = Brush.verticalGradient(colors = listOf(BgGradientStart, BgGradientEnd)))
+                .padding(padding)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(48.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBackToLogin) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+                    Text(text = "Back to login", color = Color.White, fontSize = 16.sp)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(modifier = Modifier.size(80.dp), shape = CircleShape, color = Color.White.copy(alpha = 0.2f)) {
+                    Icon(imageVector = Icons.Default.Person, contentDescription = null, tint = Color.White, modifier = Modifier.padding(16.dp).fillMaxSize())
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(text = "Create Account", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                Text(text = "Join CrickAI Community", color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp)
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = "Sign Up", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text(text = "Create your account to watch live matches", fontSize = 14.sp, color = GrayText, modifier = Modifier.padding(top = 8.dp))
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = "Full Name", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black, modifier = Modifier.padding(bottom = 8.dp))
+                            OutlinedTextField(
+                                value = fullName, onValueChange = { fullName = it }, modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Enter your full name", color = Color.LightGray) },
+                                leadingIcon = { Icon(Icons.Default.Person, null, tint = GrayText) },
+                                shape = RoundedCornerShape(12.dp), singleLine = true,
+                                enabled = !isLoading,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryBlue, unfocusedBorderColor = Color(0xFFE5E7EB))
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = "Email Address", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black, modifier = Modifier.padding(bottom = 8.dp))
+                            OutlinedTextField(
+                                value = email, onValueChange = { email = it }, modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Enter your email", color = Color.LightGray) },
+                                leadingIcon = { Icon(Icons.Default.Email, null, tint = GrayText) },
+                                shape = RoundedCornerShape(12.dp), singleLine = true,
+                                enabled = !isLoading,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryBlue, unfocusedBorderColor = Color(0xFFE5E7EB))
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = "Password", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black, modifier = Modifier.padding(bottom = 8.dp))
+                            OutlinedTextField(
+                                value = password, onValueChange = { password = it }, modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Create a password", color = Color.LightGray) },
+                                leadingIcon = { Icon(Icons.Default.Lock, null, tint = GrayText) },
+                                trailingIcon = {
+                                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                        Icon(if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, null, tint = GrayText)
+                                    }
+                                },
+                                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                shape = RoundedCornerShape(12.dp), singleLine = true,
+                                enabled = !isLoading,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryBlue, unfocusedBorderColor = Color(0xFFE5E7EB))
+                            )
+                            Text(text = "Must be at least 8 characters", fontSize = 12.sp, color = GrayText, modifier = Modifier.padding(top = 4.dp))
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = "Confirm Password", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black, modifier = Modifier.padding(bottom = 8.dp))
+                            OutlinedTextField(
+                                value = confirmPassword, onValueChange = { confirmPassword = it }, modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Confirm your password", color = Color.LightGray) },
+                                leadingIcon = { Icon(Icons.Default.Lock, null, tint = GrayText) },
+                                trailingIcon = {
+                                    IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+                                        Icon(if (confirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, null, tint = GrayText)
+                                    }
+                                },
+                                visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                shape = RoundedCornerShape(12.dp), singleLine = true,
+                                enabled = !isLoading,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PrimaryBlue, unfocusedBorderColor = Color(0xFFE5E7EB))
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Button(
+                            onClick = { handleSignUp() },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            enabled = !isLoading,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+                        ) {
+                            if (isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                            else Text(text = "Create Account", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "Already have an account?", color = GrayText, fontSize = 14.sp)
+                            TextButton(onClick = onBackToLogin) {
+                                Text(text = "Sign In", color = LinkBlue, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+                Text(text = "By signing up, you'll get access to live matches\nand AI predictions", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 32.dp))
+            }
+        }
     }
 }

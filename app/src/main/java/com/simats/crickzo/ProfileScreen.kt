@@ -9,7 +9,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.*
+
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,8 +29,10 @@ fun ProfileScreen(
     userName: String,
     userEmail: String,
     onAccountSettingsClick: () -> Unit,
+    onPremiumClick: () -> Unit,
     onLogout: () -> Unit
 ) {
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -178,6 +182,16 @@ fun ProfileScreen(
                     label = "Account Settings",
                     onClick = onAccountSettingsClick
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                ActionRow(
+                    icon = Icons.Default.WorkspacePremium,
+                    label = "Upgrade to Premium",
+                    iconColor = Color(0xFFD4AF37), // Gold color
+                    labelColor = Color(0xFFD4AF37),
+                    onClick = onPremiumClick
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Spacer(modifier = Modifier.height(8.dp))
                 ActionRow(
                     icon = Icons.AutoMirrored.Filled.Logout,
