@@ -64,7 +64,7 @@ fun LoginScreen(
                         val userId = body.userId ?: -1
                         val name = body.name ?: "User"
                         
-                        val sharedPrefs = context.getSharedPreferences("crickzo_prefs", Context.MODE_PRIVATE)
+                        val sharedPrefs = context.getSharedPreferences("criczo_prefs", Context.MODE_PRIVATE)
                         sharedPrefs.edit()
                             .putInt("user_id", userId)
                             .putString("user_name", name)
@@ -99,7 +99,7 @@ fun LoginScreen(
         ) {
             Spacer(modifier = Modifier.height(30.dp))
 
-            // Logo Row with SIMATS, CRICKZO, and SSE
+            // Logo Row with SIMATS, CRICZO, and SSE
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -115,10 +115,10 @@ fun LoginScreen(
                     contentScale = ContentScale.Fit
                 )
 
-                // CRICKZO Logo (Middle)
+                // CRICZO Logo (Middle)
                 Image(
                     painter = painterResource(id = R.drawable.crickzo_logo),
-                    contentDescription = "Crickzo Logo",
+                    contentDescription = "Criczo Logo",
                     modifier = Modifier.size(110.dp),
                     contentScale = ContentScale.Fit
                 )

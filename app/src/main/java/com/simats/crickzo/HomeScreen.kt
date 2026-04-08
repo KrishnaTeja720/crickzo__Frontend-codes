@@ -190,7 +190,7 @@ fun HomeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (!hideBottomBar) {
-                CrickzoBottomBar(
+                CriczoBottomBar(
                     selectedItem = if (currentScreen == "AccountSettings") "Profile" else currentScreen,
                     onItemSelected = { screen ->
                         if (screen == "Add Match") {
@@ -478,7 +478,7 @@ fun HomeScreen(
 }
 
 @Composable
-fun CrickzoBottomBar(selectedItem: String, onItemSelected: (String) -> Unit) {
+fun CriczoBottomBar(selectedItem: String, onItemSelected: (String) -> Unit) {
     NavigationBar(
         containerColor = Color.White,
         tonalElevation = 8.dp

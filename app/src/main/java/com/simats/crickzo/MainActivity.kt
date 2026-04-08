@@ -10,7 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.work.*
-import com.simats.crickzo.ui.theme.CrickzoTheme
+import com.simats.crickzo.ui.theme.CriczoTheme
 import kotlinx.coroutines.launch
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -35,10 +35,10 @@ class MainActivity : ComponentActivity() {
             scheduleScoreUpdate()
         }
 
-        val sharedPrefs = getSharedPreferences("crickzo_prefs", Context.MODE_PRIVATE)
+        val sharedPrefs = getSharedPreferences("criczo_prefs", Context.MODE_PRIVATE)
 
         setContent {
-            CrickzoTheme {
+            CriczoTheme {
                 val coroutineScope = rememberCoroutineScope()
                 val apiService = RetrofitClient.apiService
                 

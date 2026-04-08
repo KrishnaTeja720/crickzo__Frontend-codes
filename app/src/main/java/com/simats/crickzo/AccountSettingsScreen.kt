@@ -255,7 +255,7 @@ fun AccountSettingsScreen(
         AlertDialog(
             onDismissRequest = { showLogoutConfirmation = false },
             title = { Text("Logout") },
-            text = { Text("Are you sure you want to log out from Crickzo?") },
+            text = { Text("Are you sure you want to log out from Criczo?") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -318,7 +318,7 @@ fun AccountSettingsScreen(
             icon = Icons.Outlined.PrivacyTip,
             onDismiss = { showPrivacyPolicy = false },
             content = """
-                Your privacy is important to us. It is Crickzo's policy to respect your privacy regarding any information we may collect from you across our website and other sites we own and operate.
+                Your privacy is important to us. It is Criczo's policy to respect your privacy regarding any information we may collect from you across our website and other sites we own and operate.
                 
                 We only ask for personal information when we truly need it to provide a service to you. We collect it by fair and lawful means, with your knowledge and consent. We also let you know why we’re collecting it and how it will be used.
                 
@@ -336,13 +336,13 @@ fun AccountSettingsScreen(
             onDismiss = { showTermsOfService = false },
             content = """
                 1. Terms
-                By accessing the app at Crickzo, you are agreeing to be bound by these terms of service, all applicable laws and regulations, and agree that you are responsible for compliance with any applicable local laws. 
+                By accessing the app at Criczo, you are agreeing to be bound by these terms of service, all applicable laws and regulations, and agree that you are responsible for compliance with any applicable local laws. 
                 
                 2. Use License
-                Permission is granted to temporarily download one copy of the materials (information or software) on Crickzo's app for personal, non-commercial transitory viewing only.
+                Permission is granted to temporarily download one copy of the materials (information or software) on Criczo's app for personal, non-commercial transitory viewing only.
                 
                 3. Disclaimer
-                The materials on Crickzo's app are provided on an 'as is' basis. Crickzo makes no warranties, expressed or implied, and hereby disclaims and negates all other warranties including, without limitation, implied warranties or conditions of merchantability, fitness for a particular purpose, or non-infringement of intellectual property or other violation of rights.
+                The materials on Criczo's app are provided on an 'as is' basis. Criczo makes no warranties, expressed or implied, and hereby disclaims and negates all other warranties including, without limitation, implied warranties or conditions of merchantability, fitness for a particular purpose, or non-infringement of intellectual property or other violation of rights.
             """.trimIndent()
         )
     }

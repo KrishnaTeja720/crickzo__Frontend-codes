@@ -122,22 +122,6 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Footer Section
-        Text(
-            text = "CrickAI v1.0.0",
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-            color = GrayText,
-            fontSize = 12.sp
-        )
-        Text(
-            text = "Live Scoring + AI Predictions",
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-            color = GrayText,
-            fontSize = 12.sp
-        )
-        
         Spacer(modifier = Modifier.height(100.dp))
     }
 }
